@@ -3,12 +3,6 @@ pragma abicoder v2;
 
 import "./Ownable.sol";
 
-// todo
-// modify ids - get transfers to properly be removed https://ethereum.stackexchange.com/questions/1527/how-to-delete-an-element-at-a-certain-index-in-an-array
-// add some logging events
-// test
-
-
 
 contract Wallet is Ownable {
     
@@ -19,12 +13,13 @@ contract Wallet is Ownable {
     Transfer[] transferQueue;
     
     
-    // constructor with up to 3 owners
+    // constructor with 3 owners
     constructor(uint reqApprovals, address owner2, address owner3) {
         reqApprovalsForTransfer = reqApprovals;
         owners[owner2] = 1;
         owners[owner3] = 1;
     }
+    
     
     struct Transfer {
         uint id;
@@ -35,7 +30,10 @@ contract Wallet is Ownable {
     }
     
     
-    
+    event transferRequestMade(Transfer newTrans);
+    event transferApproved(Transfer approvedTrans, address approvedBy);
+    event transferComplete(Transfer sentTrans);
+    event depositComplete(address depositer, uint amount);
     
     
     // adds balance to senders wallet
@@ -46,6 +44,8 @@ contract Wallet is Ownable {
         balance[msg.sender] += msg.value;
         
         assert(balance[msg.sender] == prevBal + msg.value);
+        
+        emit depositComplete(msg.sender, msg.value);
     }
     
     // sender can check their own balance
@@ -53,13 +53,9 @@ contract Wallet is Ownable {
         return balance[msg.sender];
     }
     
-    // gets liqudity of all wallet holders
-    function getLiquidity () public view returns (uint) {
-        return address(this).balance;
-    }
-    
     function makeTransferRequest (address recipient, uint amount) public onlyOwner {
         require(balance[msg.sender] >= amount, "You cannot send more than you have");
+        require(msg.sender != recipient, "You cannot send to yourself");
         
         Transfer memory newTrans = Transfer(++transferCounter, msg.sender, recipient, amount, 0);
         
@@ -70,22 +66,35 @@ contract Wallet is Ownable {
         transferQueue.push(newTrans);
         
         assert(transferQueue.length == queueLengthBefore + 1);
+        emit transferRequestMade(newTrans);
     }
     
     function approveRequest (uint transferId) public onlyOwner {
         uint i = getListIdWithTransferId(transferId);
         transferQueue[i].numOfApprovals++;
         
+        emit transferApproved(transferQueue[i], msg.sender);
+        
         if ( transferQueue[i].numOfApprovals >= reqApprovalsForTransfer ) {
-            _transfer(transferId);
+            _transfer(i);
         }
     }
     
-    function _transfer (uint transferId) private {
-        uint i = getListIdWithTransferId(transferId);
-        balance[transferQueue[i].to] += transferQueue[i].amount;
+    function _transfer (uint arrayIndex) private {
+        emit transferComplete(transferQueue[arrayIndex]);
         
-        delete transferQueue[i];
+        balance[transferQueue[arrayIndex].to] += transferQueue[arrayIndex].amount;
+        removeFromQueue(arrayIndex);
+    }
+    
+    // https://ethereum.stackexchange.com/questions/1527/how-to-delete-an-element-at-a-certain-index-in-an-array
+    function removeFromQueue(uint arrayIndex) private {
+        if (arrayIndex >= transferQueue.length) return;
+
+        for (uint i = arrayIndex; i < transferQueue.length-1; i++){
+            transferQueue[i] = transferQueue[i+1];
+        }
+        transferQueue.pop();
     }
     
     function getListIdWithTransferId (uint id) private view returns (uint) {
@@ -107,6 +116,15 @@ contract Wallet is Ownable {
     
     function getTransfers () public view returns (Transfer[] memory) {
         return transferQueue;
+    }
+    
+    function getTransferQueueLength () public view returns (uint) {
+        return transferQueue.length;
+    }
+    
+    // gets liqudity of all wallet holders
+    function getLiquidity () public view returns (uint) {
+        return address(this).balance;
     }
     
     
